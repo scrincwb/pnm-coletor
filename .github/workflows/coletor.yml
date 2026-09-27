@@ -1,0 +1,213 @@
+name: Coleta de preços
+
+# Agendador PÚBLICO da coleta do Paraguai na Mão: em repositório público os minutos
+# do GitHub Actions são grátis. O código continua no repositório privado
+# (scrincwb/paraguainamao-site) e é baixado na hora com uma chave SÓ DE LEITURA
+# (secret SITE_DEPLOY_KEY). O token da API vive em Secrets (COLETOR_TOKEN).
+# ⚠️ Logs deste repositório são públicos: nada de imprimir dado sensível.
+# Modos manuais raros (sku_da_url, lugares_revisar, loja_arquivo…) continuam no
+# workflow do repositório privado, só com workflow_dispatch.
+on:
+  # Minutos "quebrados" de propósito: o GitHub atrasa (ou pula) agendamento em minuto redondo.
+  schedule:
+    - cron: '23 7 * * *'   # 04:23 Brasília/CDE — feeds
+    - cron: '23 13 * * *'  # 10:23 — feeds de novo
+    - cron: '47 8 * * *'   # 05:47 — prioritários (manhã) + Cellshop
+    - cron: '47 16 * * *'  # 13:47 — prioritários (tarde)
+    - cron: '17 4 * * 0'   # domingo 01:17 — Mega completa + lugares
+    - cron: '37 */3 * * *' # a cada 3 h — cotação
+    - cron: '11 5 1 * *'   # dia 1 — commit de "sinal de vida" (o GitHub desliga agendamento após 60 dias parado)
+  workflow_dispatch:
+    inputs:
+      loja:
+        description: 'Loja (slug do config ou conectada no admin)'
+        default: mega-eletronicos
+      modo:
+        type: choice
+        options: [prioritarios, cambio, completa, feeds, cellshop, lugares]
+        default: prioritarios
+      parte:
+        description: 'Fatia k/n para lojas grandes (ex.: 1/4). Vazio = tudo'
+        default: ''
+      limite:
+        description: 'Quantas URLs (prioritarios) ou páginas (cellshop)'
+        default: '150'
+
+env:
+  COLETOR_TOKEN: ${{ secrets.COLETOR_TOKEN }}
+  COLETOR_API_URL: https://www.paraguainamao.com/api/coletor.php
+  UA_NAV: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36'
+
+jobs:
+  prioritarios:
+    if: github.event.schedule == '47 8 * * *' || github.event.schedule == '47 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'prioritarios')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        loja: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.loja)) || fromJSON('["mega-eletronicos","atacado-connect","cellshop","one-click","matrix-importados","empire-shop"]') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: scrincwb/paraguainamao-site
+          ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
+          sparse-checkout: coletor
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Recolher os prioritários de ${{ matrix.loja }}
+        env:
+          LOJA: ${{ matrix.loja }}
+          LIMITE: ${{ inputs.limite || '150' }}
+        run: |
+          [[ "$LOJA" =~ ^[a-z0-9-]+$ && "$LIMITE" =~ ^[0-9]+$ ]] || { echo "entrada inválida"; exit 1; }
+          python3 coletor/coletor.py --config coletor/config.json --loja "$LOJA" --prioritarios --limite "$LIMITE" --pausa 0.8
+
+  feeds:
+    if: github.event.schedule == '23 7 * * *' || github.event.schedule == '23 13 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'feeds')
+    runs-on: ubuntu-latest
+    # No repositório privado o limite era 120 min e a coleta era cancelada no meio.
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: scrincwb/paraguainamao-site
+          ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
+          sparse-checkout: coletor
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Ler os feeds
+        run: python3 coletor/coletor.py --config coletor/config.json --feeds --pausa 0.5
+      - name: Conferir estoque na página (Roma não informa esgotado na lista)
+        if: always()
+        run: |
+          for i in 1 2 3 4; do
+            curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=roma-shopping&qtd=150" || true; echo
+          done
+          for i in 1 2; do
+            curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=sax&qtd=150" || true; echo
+          done
+      - name: Recalcular o real de todas as ofertas (câmbio de hoje)
+        if: ${{ !cancelled() }}
+        run: |
+          resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=recalcular_brl")
+          echo "$resposta"
+          echo "$resposta" | grep -q '"ok":true'
+
+  cellshop:
+    # PROVISÓRIO até a Cellshop mandar feed: o servidor lê a listagem via Jina Reader.
+    # 1/3 da loja por dia (terço pelo dia do ano). Manual: "limite" = máx. páginas.
+    if: github.event.schedule == '47 8 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'cellshop')
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - name: Cellshop (1/3 por dia, 8 páginas por chamada)
+        env:
+          MAXP: ${{ github.event_name == 'workflow_dispatch' && inputs.limite || '0' }}
+        run: |
+          [[ "$MAXP" =~ ^[0-9]+$ ]] || MAXP=0
+          total=1812; terco=$(( (total + 2) / 3 )); k=$(( $(date +%j | sed 's/^0*//') % 3 ))
+          de=$(( k * terco + 1 )); ate=$(( de + terco - 1 ))
+          [ "$MAXP" -gt 0 ] && ate=$(( de + MAXP - 1 ))
+          echo "páginas $de a $ate"; lidas=0; falhas=0
+          while [ $de -le $ate ]; do
+            q=$(( ate - de + 1 )); [ $q -gt 8 ] && q=8
+            r=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cellshop&de=$de&qtd=$q" || echo '{}')
+            echo "p$de: $r" | cut -c1-240
+            n=$(echo "$r" | python3 -c "import json,sys
+          try: print(json.load(sys.stdin).get('ofertas',0))
+          except Exception: print(0)")
+            lidas=$((lidas+n))
+            echo "$r" | grep -q '"fim":true' && break
+            if [ "$n" = "0" ]; then falhas=$((falhas+1)); [ $falhas -ge 4 ] && break; sleep 30; else falhas=0; fi
+            de=$((de+q))
+          done
+          echo "ofertas lidas: $lidas"
+          [ $lidas -gt 0 ]
+
+  cambio:
+    if: github.event.schedule == '37 */3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'cambio')
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - name: Atualizar a cotação no site
+        run: |
+          resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cambio")
+          echo "$resposta"
+          echo "$resposta" | grep -q '"ok":true'
+      - name: Imóveis das imobiliárias conectadas (1x por dia, 06h UTC)
+        run: |
+          [ "$(date -u +%H)" = "06" ] || exit 0
+          curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds" | head -c 600
+      - name: Boletim do dia para o WhatsApp do dono (09h UTC = 06h Brasília)
+        # Log público: só confirma se foi, sem imprimir o texto do boletim.
+        run: |
+          [ "$(date -u +%H)" = "09" ] || exit 0
+          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1" | grep -o '"ok":[a-z]*' || true
+      - name: Alarme de loja parada (1x por dia, às 12h UTC)
+        run: |
+          [ "$(date -u +%H)" = "12" ] || exit 0
+          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas" | grep -o '"ok":[a-z]*' || true
+
+  lugares:
+    if: github.event.schedule == '17 4 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'lugares')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: scrincwb/paraguainamao-site
+          ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
+          sparse-checkout: coletor
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Lugares da fronteira (OSM)
+        run: python3 coletor/lugares.py --config coletor/config.json
+      - name: Telefones, endereços e redes (Overture Maps)
+        run: pip3 install -q overturemaps && python3 coletor/lugares_overture.py --config coletor/config.json
+      - name: Fechar notas (quem o Overture não confirmou fica fora do guia)
+        run: |
+          resposta=$(curl -sS --max-time 120 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=lugares_fechar_notas")
+          echo "$resposta"
+          echo "$resposta" | grep -q '"ok":true'
+
+  completa:
+    if: github.event.schedule == '17 4 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'completa')
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: scrincwb/paraguainamao-site
+          ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
+          sparse-checkout: coletor
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Carga completa de ${{ inputs.loja || 'mega-eletronicos' }}
+        env:
+          LOJA: ${{ inputs.loja || 'mega-eletronicos' }}
+          PARTE: ${{ inputs.parte }}
+        run: |
+          [[ "$LOJA" =~ ^[a-z0-9-]+$ ]] || { echo "loja inválida"; exit 1; }
+          extra=()
+          if [ -n "$PARTE" ]; then [[ "$PARTE" =~ ^[0-9/]+$ ]] || { echo "parte inválida"; exit 1; }; extra=(--parte "$PARTE"); fi
+          python3 coletor/coletor.py --config coletor/config.json --loja "$LOJA" "${extra[@]}" --pausa 0.8
+
+  sinal_de_vida:
+    # O GitHub desativa agendamentos de repositório sem atividade há 60 dias.
+    if: github.event.schedule == '11 5 1 * *'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          date -u +%FT%TZ > .sinal-de-vida
+          git config user.name "github-actions[bot]"
+          git config user.email "41898333+github-actions[bot]@users.noreply.github.com"
+          git add .sinal-de-vida && git commit -m "sinal de vida mensal" && git push
