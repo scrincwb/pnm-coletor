@@ -137,9 +137,9 @@ jobs:
           resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cambio")
           echo "$resposta"
           echo "$resposta" | grep -q '"ok":true'
-      - name: Imóveis das imobiliárias conectadas (1x por dia, 06h UTC)
+      - name: Imóveis das imobiliárias conectadas (1x por dia, 06h UTC; ou na hora, disparando modo cambio à mão)
         run: |
-          [ "$(date -u +%H)" = "06" ] || exit 0
+          [ "$(date -u +%H)" = "06" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || exit 0
           curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds" | head -c 600
       - name: Boletim do dia para o WhatsApp do dono (09h UTC = 06h Brasília)
         # Log público: só confirma se foi, sem imprimir o texto do boletim.
