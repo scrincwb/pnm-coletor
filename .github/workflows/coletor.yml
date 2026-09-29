@@ -24,7 +24,7 @@ on:
         default: mega-eletronicos
       modo:
         type: choice
-        options: [prioritarios, cambio, completa, feeds, cellshop, lugares]
+        options: [prioritarios, cambio, completa, feeds, cellshop, lugares, reclassificar]
         default: prioritarios
       parte:
         description: 'Fatia k/n para lojas grandes (ex.: 1/4). Vazio = tudo'
@@ -150,6 +150,24 @@ jobs:
         run: |
           [ "$(date -u +%H)" = "12" ] || exit 0
           curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas" | grep -o '"ok":[a-z]*' || true
+
+  reclassificar:
+    # Regras de categoria mudaram: passa a base inteira (lotes de ~80 s no servidor).
+    if: github.event_name == 'workflow_dispatch' && inputs.modo == 'reclassificar'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Reclassificar todos os produtos
+        run: |
+          desde=0
+          for i in $(seq 1 60); do
+            r=$(curl -sS --max-time 115 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=reclassificar&desde=$desde")
+            echo "$r"
+            echo "$r" | grep -q '"ok":true' || exit 1
+            echo "$r" | grep -q '"fim":true' && break
+            desde=$(echo "$r" | sed -n 's/.*"desde":\([0-9]*\).*/\1/p')
+            sleep 5
+          done
 
   lugares:
     if: github.event.schedule == '17 4 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'lugares')
