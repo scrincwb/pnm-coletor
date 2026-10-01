@@ -152,6 +152,10 @@ jobs:
         run: |
           [ "$(date -u +%H)" = "12" ] || exit 0
           curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas" | grep -o '"ok":[a-z]*' || true
+      - name: Auditoria do agrupamento (1x por dia, às 12h UTC) — produtos iguais em fichas separadas
+        run: |
+          [ "$(date -u +%H)" = "12" ] || exit 0
+          curl -sS --max-time 290 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
 
   miniaturas:
     # Miniaturas WebP das fotos de produto para os cards do site (junto com os feeds).
