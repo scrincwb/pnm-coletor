@@ -90,6 +90,10 @@ jobs:
           for i in 1 2 3; do
             curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=sax&qtd=400" || true; echo
           done
+          # Todas as outras lojas: a oferta mais barata dos produtos mais vistos (relatório por loja).
+          for i in 1 2 3 4; do
+            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque_geral&qtd=400" || true; echo
+          done
       - name: Recalcular o real de todas as ofertas (câmbio de hoje)
         if: ${{ !cancelled() }}
         run: |
