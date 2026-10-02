@@ -83,11 +83,12 @@ jobs:
       - name: Conferir estoque na página (Roma não informa esgotado na lista)
         if: always()
         run: |
-          for i in 1 2 3 4; do
-            curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=roma-shopping&qtd=150" || true; echo
+          # Cada chamada confere em paralelo e para sozinha em ~85 s (o servidor corta em 120 s).
+          for i in 1 2 3 4 5 6 7 8; do
+            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=roma-shopping&qtd=400" || true; echo
           done
-          for i in 1 2; do
-            curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=sax&qtd=150" || true; echo
+          for i in 1 2 3; do
+            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=sax&qtd=400" || true; echo
           done
       - name: Recalcular o real de todas as ofertas (câmbio de hoje)
         if: ${{ !cancelled() }}
