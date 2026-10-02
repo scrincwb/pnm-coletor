@@ -16,6 +16,7 @@ on:
     - cron: '47 16 * * *'  # 13:47 — prioritários (tarde)
     - cron: '17 4 * * 0'   # domingo 01:17 — Mega completa + lugares
     - cron: '37 */3 * * *' # a cada 3 h — cotação
+    - cron: '5 3,9,15,21 * * *' # a cada 6 h — conferência de estoque nas páginas (GitHub abre, servidor grava)
     - cron: '11 5 1 * *'   # dia 1 — commit de "sinal de vida" (o GitHub desliga agendamento após 60 dias parado)
   workflow_dispatch:
     inputs:
@@ -65,14 +66,17 @@ jobs:
           python3 coletor/coletor.py --config coletor/config.json --loja "$LOJA" --prioritarios --limite "$LIMITE" --pausa 0.8
 
   estoque:
-    # Manual: só a conferência de estoque (sem ler os feeds, ~30 min).
-    if: github.event_name == 'workflow_dispatch' && inputs.modo == 'estoque'
+    # Só a conferência de estoque (sem ler os feeds): a cada 6 h e manual.
+    if: github.event.schedule == '5 3,9,15,21 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'estoque')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
         with:
           sparse-checkout: scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
       - name: Conferir estoque na página
         run: bash scripts/estoque.sh
 
