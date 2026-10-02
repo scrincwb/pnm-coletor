@@ -108,7 +108,8 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=recalcular_brl")
-          echo "$resposta"
+          # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
+          echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
 
   cellshop:
@@ -152,7 +153,8 @@ jobs:
       - name: Atualizar a cotação no site
         run: |
           resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cambio")
-          echo "$resposta"
+          # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
+          echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
       - name: Imóveis das imobiliárias conectadas (1x por dia, 06h UTC; ou na hora, disparando modo cambio à mão)
         run: |
@@ -182,7 +184,8 @@ jobs:
         run: |
           for i in $(seq 1 25); do
             r=$(curl -sS --max-time 115 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=miniaturas")
-            echo "$r"
+            # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
+            echo "$r" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
             echo "$r" | grep -q '"ok":true' || exit 1
             echo "$r" | grep -q '"fim":true' && break
             sleep 5
@@ -199,7 +202,8 @@ jobs:
           desde=0
           for i in $(seq 1 60); do
             r=$(curl -sS --max-time 115 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=reclassificar&desde=$desde")
-            echo "$r"
+            # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
+            echo "$r" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
             echo "$r" | grep -q '"ok":true' || exit 1
             echo "$r" | grep -q '"fim":true' && break
             desde=$(echo "$r" | sed -n 's/.*"desde":\([0-9]*\).*/\1/p')
@@ -226,7 +230,8 @@ jobs:
       - name: Fechar notas (quem o Overture não confirmou fica fora do guia)
         run: |
           resposta=$(curl -sS --max-time 120 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=lugares_fechar_notas")
-          echo "$resposta"
+          # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
+          echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
 
   completa:
