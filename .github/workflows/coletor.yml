@@ -87,8 +87,10 @@ jobs:
           for i in 1 2 3 4 5 6 7 8; do
             curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=roma-shopping&qtd=400" || true; echo
           done
-          for i in 1 2 3; do
-            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=sax&qtd=400" || true; echo
+          # Sax fora (out/2026): site em "Catálogo en actualización" sem estoque na página e 403 para o servidor.
+          # Shopping China: o feed diz "Em estoque" para tudo; a página decide.
+          for i in 1 2 3 4 5 6; do
+            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=shopping-china&qtd=500" || true; echo
           done
           # Todas as outras lojas: a oferta mais barata dos produtos mais vistos (relatório por loja).
           for i in 1 2 3 4; do
