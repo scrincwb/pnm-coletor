@@ -24,7 +24,7 @@ on:
         default: mega-eletronicos
       modo:
         type: choice
-        options: [prioritarios, cambio, completa, feeds, cellshop, lugares, reclassificar, miniaturas]
+        options: [prioritarios, cambio, completa, feeds, estoque, cellshop, lugares, reclassificar, miniaturas]
         default: prioritarios
       parte:
         description: 'Fatia k/n para lojas grandes (ex.: 1/4). Vazio = tudo'
@@ -64,6 +64,18 @@ jobs:
           [[ "$LOJA" =~ ^[a-z0-9-]+$ && "$LIMITE" =~ ^[0-9]+$ ]] || { echo "entrada inválida"; exit 1; }
           python3 coletor/coletor.py --config coletor/config.json --loja "$LOJA" --prioritarios --limite "$LIMITE" --pausa 0.8
 
+  estoque:
+    # Manual: só a conferência de estoque (sem ler os feeds, ~30 min).
+    if: github.event_name == 'workflow_dispatch' && inputs.modo == 'estoque'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - name: Conferir estoque na página
+        run: bash scripts/estoque.sh
+
   feeds:
     if: github.event.schedule == '23 7 * * *' || github.event.schedule == '23 13 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'feeds')
     runs-on: ubuntu-latest
@@ -80,22 +92,14 @@ jobs:
           python-version: '3.12'
       - name: Ler os feeds
         run: python3 coletor/coletor.py --config coletor/config.json --feeds --pausa 0.5
-      - name: Conferir estoque na página (Roma não informa esgotado na lista)
+      - uses: actions/checkout@v4
         if: always()
-        run: |
-          # Cada chamada confere em paralelo e para sozinha em ~85 s (o servidor corta em 120 s).
-          for i in 1 2 3 4 5 6 7 8; do
-            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=roma-shopping&qtd=400" || true; echo
-          done
-          # Sax fora (out/2026): site em "Catálogo en actualización" sem estoque na página e 403 para o servidor.
-          # Shopping China: o feed diz "Em estoque" para tudo; a página decide.
-          for i in 1 2 3 4 5 6; do
-            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque&loja=shopping-china&qtd=500" || true; echo
-          done
-          # Todas as outras lojas: a oferta mais barata dos produtos mais vistos (relatório por loja).
-          for i in 1 2 3 4; do
-            curl -sS --max-time 150 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=verificar_estoque_geral&qtd=400" || true; echo
-          done
+        with:
+          path: pnm-coletor
+          sparse-checkout: scripts
+      - name: Conferir estoque na página (Roma, Shopping China, Mega + ronda geral)
+        if: always()
+        run: bash pnm-coletor/scripts/estoque.sh
       - name: Recalcular o real de todas as ofertas (câmbio de hoje)
         if: ${{ !cancelled() }}
         run: |
