@@ -65,9 +65,12 @@ def compilar(regra):
 
 
 def baixar(url):
-    """(código HTTP, html). 403/429/503 tenta de novo com cara de navegador, com calma."""
+    """(código HTTP, html). 429 ("vá com calma", lojas Shopify) espera e tenta de novo;
+    403/503 tenta de novo com cara de navegador."""
     cod, html = 0, ""
-    for ua, espera in ((UA_ROBO, 0), (UA_NAV, 3)):
+    for ua, espera in ((UA_ROBO, 0), (UA_NAV, 3), (UA_NAV, 15), (UA_NAV, 30)):
+        if espera and cod != 429 and espera > 3:
+            break                         # as esperas longas são só para o 429
         if espera:
             time.sleep(espera)
         req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "text/html,application/xhtml+xml",
