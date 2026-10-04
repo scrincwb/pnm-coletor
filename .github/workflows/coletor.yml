@@ -43,7 +43,7 @@ jobs:
   prioritarios:
     if: github.event.schedule == '47 8 * * *' || github.event.schedule == '47 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'prioritarios')
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120   # Atacado (2500) e Matrix (2000) por rodada desde 04/10/2026
     strategy:
       fail-fast: false
       matrix:
