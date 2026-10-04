@@ -165,10 +165,9 @@ jobs:
         run: |
           [ "$(date -u +%H)" = "09" ] || exit 0
           curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1" | grep -o '"ok":[a-z]*' || true
-      - name: Alarme de loja parada (1x por dia, às 12h UTC)
+      - name: Alarme de loja parada (toda rodada; o servidor avisa no máximo 1x por dia)
         run: |
-          [ "$(date -u +%H)" = "12" ] || exit 0
-          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas" | grep -o '"ok":[a-z]*' || true
+          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas&diario=1" | grep -o '"ok":[a-z]*' || true
       - name: Auditoria do agrupamento (1x por dia, às 12h UTC) — produtos iguais em fichas separadas
         run: |
           [ "$(date -u +%H)" = "12" ] || exit 0
