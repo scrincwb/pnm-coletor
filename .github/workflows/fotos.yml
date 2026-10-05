@@ -1,10 +1,11 @@
 name: Fotos dos produtos (conferência + busca na internet)
 
 # Nenhum produto sem foto no PNM: o servidor confere a foto de cada produto
-# (pega "SIN IMAGEN", foto quebrada) e, para quem ficou sem, procura uma foto
-# na internet (coletor/fotos_internet.py, do repositório privado do site).
-# Antes rodava no Mac do dono (LaunchAgent com.paraguainamao.fotos); aqui roda
-# com o Mac desligado. Cada execução sai de um IP diferente, então não repete o
+# (pega "SIN IMAGEN", foto quebrada) — coletor/fotos_internet.py, do repositório
+# privado do site. Antes rodava no Mac do dono; aqui roda com o Mac desligado.
+# A BUSCA de foto na internet (Bing) NÃO funciona daqui (o Bing não devolve nada
+# para IP de datacenter — testado 05/10/2026): ela continua no Mac
+# (LaunchAgent com.paraguainamao.fotos com --conferir 0). Aqui lote = 0. Cada execução sai de um IP diferente, então não repete o
 # bloqueio de firewall que o Mac levou em 04/10/2026.
 # ⚠️ Log público: o script só imprime nome de produto e endereço de foto (dados
 # públicos). O token vive em Secrets e só vai para um arquivo no próprio runner.
@@ -15,10 +16,10 @@ on:
     inputs:
       conferir:
         description: 'Rodadas de conferência no servidor (80 s cada)'
-        default: '4'
+        default: '6'
       lote:
-        description: 'Quantos produtos sem foto procurar na internet'
-        default: '120'
+        description: 'Quantos produtos sem foto procurar na internet (Bing não responde daqui: deixe 0)'
+        default: '0'
 
 concurrency:
   group: fotos
@@ -40,8 +41,8 @@ jobs:
       - name: Conferir e buscar fotos
         env:
           COLETOR_TOKEN: ${{ secrets.COLETOR_TOKEN }}
-          CONFERIR: ${{ inputs.conferir || '4' }}
-          LOTE: ${{ inputs.lote || '120' }}
+          CONFERIR: ${{ inputs.conferir || '6' }}
+          LOTE: ${{ inputs.lote || '0' }}
         run: |
           [[ "$CONFERIR" =~ ^[0-9]+$ && "$LOTE" =~ ^[0-9]+$ ]] || { echo "entrada inválida"; exit 1; }
           umask 077
