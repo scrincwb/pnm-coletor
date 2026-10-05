@@ -160,11 +160,10 @@ jobs:
         run: |
           [ "$(date -u +%H)" = "06" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || exit 0
           curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds" | head -c 600
-      - name: Boletim do dia para o WhatsApp do dono (09h UTC = 06h Brasília)
+      - name: Boletim do dia para o WhatsApp do dono (toda rodada; o servidor manda 1x por dia, entre 6h e 12h)
         # Log público: só confirma se foi, sem imprimir o texto do boletim.
         run: |
-          [ "$(date -u +%H)" = "09" ] || exit 0
-          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1" | grep -o '"ok":[a-z]*' || true
+          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1&diario=1" | grep -o '"ok":[a-z]*' || true
       - name: Alarme de loja parada (toda rodada; o servidor avisa no máximo 1x por dia)
         run: |
           curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas&diario=1" | grep -o '"ok":[a-z]*' || true
