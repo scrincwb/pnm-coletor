@@ -1,0 +1,49 @@
+name: Fotos dos produtos (conferência + busca na internet)
+
+# Nenhum produto sem foto no PNM: o servidor confere a foto de cada produto
+# (pega "SIN IMAGEN", foto quebrada) e, para quem ficou sem, procura uma foto
+# na internet (coletor/fotos_internet.py, do repositório privado do site).
+# Antes rodava no Mac do dono (LaunchAgent com.paraguainamao.fotos); aqui roda
+# com o Mac desligado. Cada execução sai de um IP diferente, então não repete o
+# bloqueio de firewall que o Mac levou em 04/10/2026.
+# ⚠️ Log público: o script só imprime nome de produto e endereço de foto (dados
+# públicos). O token vive em Secrets e só vai para um arquivo no próprio runner.
+on:
+  schedule:
+    - cron: '41 * * * *'   # de hora em hora, minuto quebrado (o GitHub atrasa minuto redondo)
+  workflow_dispatch:
+    inputs:
+      conferir:
+        description: 'Rodadas de conferência no servidor (80 s cada)'
+        default: '4'
+      lote:
+        description: 'Quantos produtos sem foto procurar na internet'
+        default: '120'
+
+concurrency:
+  group: fotos
+  cancel-in-progress: false
+
+jobs:
+  fotos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: scrincwb/paraguainamao-site
+          ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
+          sparse-checkout: coletor
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Conferir e buscar fotos
+        env:
+          COLETOR_TOKEN: ${{ secrets.COLETOR_TOKEN }}
+          CONFERIR: ${{ inputs.conferir || '4' }}
+          LOTE: ${{ inputs.lote || '120' }}
+        run: |
+          [[ "$CONFERIR" =~ ^[0-9]+$ && "$LOTE" =~ ^[0-9]+$ ]] || { echo "entrada inválida"; exit 1; }
+          umask 077
+          python3 -c 'import json, os; json.dump({"api_url": "https://www.paraguainamao.com/api/coletor.php", "token": os.environ["COLETOR_TOKEN"]}, open("coletor/config.local.json", "w"))'
+          python3 -u coletor/fotos_internet.py --conferir "$CONFERIR" --lote "$LOTE"
