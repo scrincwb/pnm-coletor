@@ -4,9 +4,14 @@ name: Rotina de hora em hora (alertas e notificações)
 # notificações automáticas do app (fila da ponte, preço que caiu nos salvos,
 # notícia nova do blog) e alertas de preço. Substitui o cron do cPanel.
 # Chave em Secrets (ROTINA_CHAVE). ⚠️ Log público: só o código HTTP é impresso.
+# O agendador do GitHub atrasa e pula horas (02–09/10/2026: ~4 rodadas/dia em vez de 24),
+# mesmo em minuto quebrado. Por isso: dois horários por hora (o servidor roda no máximo
+# 1x a cada 50 min, o segundo só vale quando o primeiro foi pulado) e, no próprio site,
+# a rotina de reserva disparada por visita/app quando passa 65 min sem rodada.
 on:
   schedule:
-    - cron: '7 * * * *'   # minuto quebrado: o GitHub atrasa/pula agendamento em minuto redondo
+    - cron: '7 * * * *'    # minutos quebrados (fora de :00/:15/:30/:45)
+    - cron: '38 * * * *'   # segunda chance na mesma hora
   workflow_dispatch:
 
 jobs:
@@ -18,7 +23,9 @@ jobs:
         env:
           ROTINA_CHAVE: ${{ secrets.ROTINA_CHAVE }}
         run: |
+          # Disparo manual força a rodada (o servidor não pula por "rodada recente").
+          forcar=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && forcar=1
           codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 290 --retry 2 --retry-delay 20 \
-            -X POST -H "X-Chave: $ROTINA_CHAVE" https://paraguainamao.com/api/rotina.php)
+            -X POST -H "X-Chave: $ROTINA_CHAVE" -H "X-Forcar: $forcar" https://paraguainamao.com/api/rotina.php)
           echo "HTTP $codigo"
           [ "$codigo" = "200" ]

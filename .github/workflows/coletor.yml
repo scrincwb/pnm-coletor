@@ -15,7 +15,8 @@ on:
     - cron: '47 8 * * *'   # 05:47 — prioritários (manhã) + Cellshop
     - cron: '47 16 * * *'  # 13:47 — prioritários (tarde)
     - cron: '17 4 * * 0'   # domingo 01:17 — Mega completa + lugares
-    - cron: '37 */3 * * *' # a cada 3 h — cotação
+    - cron: '37 */3 * * *' # a cada 3 h — cotação (+ boletim, loja parada, imóveis, auditoria: o servidor faz 1x/dia)
+    - cron: '13 1-22/3 * * *' # cotação de novo, 1h30 depois: segunda chance quando o GitHub pula a de cima
     - cron: '5 3,9,15,21 * * *' # a cada 6 h — conferência de estoque nas páginas (GitHub abre, servidor grava)
     - cron: '11 5 1 * *'   # dia 1 — commit de "sinal de vida" (o GitHub desliga agendamento após 60 dias parado)
   workflow_dispatch:
@@ -146,7 +147,7 @@ jobs:
           [ $lidas -gt 0 ]
 
   cambio:
-    if: github.event.schedule == '37 */3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'cambio')
+    if: github.event.schedule == '37 */3 * * *' || github.event.schedule == '13 1-22/3 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'cambio')
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
@@ -156,10 +157,10 @@ jobs:
           # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
           echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
-      - name: Imóveis das imobiliárias conectadas (1x por dia, 06h UTC; ou na hora, disparando modo cambio à mão)
+      - name: Imóveis das imobiliárias conectadas (toda rodada; o servidor importa 1x por dia, a partir das 3h — manual importa na hora)
         run: |
-          [ "$(date -u +%H)" = "06" ] || [ "${{ github.event_name }}" = "workflow_dispatch" ] || exit 0
-          curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds" | head -c 600
+          diario=1; [ "${{ github.event_name }}" = "workflow_dispatch" ] && diario=0
+          curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds&diario=$diario" | grep -o '"ok":[a-z]*' || true
       - name: Boletim do dia para o WhatsApp do dono (toda rodada; o servidor manda 1x por dia, entre 6h e 12h)
         # Log público: só confirma se foi, sem imprimir o texto do boletim.
         run: |
@@ -167,10 +168,9 @@ jobs:
       - name: Alarme de loja parada (toda rodada; o servidor avisa no máximo 1x por dia)
         run: |
           curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas&diario=1" | grep -o '"ok":[a-z]*' || true
-      - name: Auditoria do agrupamento (1x por dia, às 12h UTC) — produtos iguais em fichas separadas
+      - name: Auditoria do agrupamento (toda rodada; o servidor roda 1x por dia, a partir das 9h) — produtos iguais em fichas separadas
         run: |
-          [ "$(date -u +%H)" = "12" ] || exit 0
-          curl -sS --max-time 290 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
+          curl -sS --max-time 290 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300&diario=1" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
 
   miniaturas:
     # Miniaturas WebP das fotos de produto para os cards do site (junto com os feeds).
