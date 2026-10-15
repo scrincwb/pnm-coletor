@@ -1,0 +1,31 @@
+name: Preço de combustível (ANP, semanal)
+
+# A ANP publica o resumo semanal (LPC) toda sexta; o script lê a página, baixa a planilha
+# mais recente e envia gasolina/etanol/diesel S10 (municípios + estados) para
+# https://paraguainamao.com/api/combustivel.php. O servidor ignora semana já gravada,
+# então rodar mais de uma vez é inofensivo.
+# Chave em Secrets (ROTINA_CHAVE, a mesma da rotina). ⚠️ Log público: só o resumo é impresso.
+# Segunda e terça 10h de Brasília (13h UTC), em minuto quebrado: o GitHub atrasa/pula
+# agendamento redondo; terça é a segunda chance caso a segunda seja pulada.
+on:
+  schedule:
+    - cron: '17 13 * * 1,2'
+  workflow_dispatch:
+
+jobs:
+  anp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: scripts
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Instalar dependências
+        run: pip install requests openpyxl
+      - name: Ler a ANP e enviar ao site
+        env:
+          ROTINA_CHAVE: ${{ secrets.ROTINA_CHAVE }}
+        run: python3 scripts/anp_semanal.py --enviar https://paraguainamao.com/api/combustivel.php
