@@ -1,0 +1,100 @@
+name: Diagnóstico de rede (TEMPORÁRIO)
+
+# Temporário (20/10/2026): descobrir onde o runner é barrado ao falar com o site.
+# ⚠️ Log público: o token NUNCA aparece (sem -v nas chamadas com Authorization; o
+# GitHub também mascara o segredo). Será apagado logo depois do diagnóstico.
+on:
+  workflow_dispatch:
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash {0}   # sem -e: um teste que falha não para os outros
+    env:
+      COLETOR_TOKEN: ${{ secrets.COLETOR_TOKEN }}
+      ORIGEM: 147.135.3.70
+      UA_NAV: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36'
+    steps:
+      - name: IP do runner e DNS
+        run: |
+          echo "IPv4 do runner: $(curl -s4 --max-time 10 https://api.ipify.org)"
+          echo "IPv6 do runner: $(curl -s6 --max-time 10 https://api64.ipify.org || echo nenhum)"
+          for h in www.paraguainamao.com paraguainamao.com; do
+            for r in "" @1.1.1.1 @8.8.8.8; do
+              echo "dig $h $r → $(dig +short $h A $r | tr '\n' ' ') | AAAA $(dig +short $h AAAA $r | tr '\n' ' ')"
+            done
+          done
+          dig +short NS paraguainamao.com
+
+      - name: Sem token (UA x host x caminho x origem direta)
+        run: |
+          teste() { # $1=rótulo $2=url $3=UA $4=resolve(opcional)
+            extra=(); [ -n "$4" ] && extra=(--resolve "$4")
+            if [ -n "$3" ]; then ua=(-A "$3"); else ua=(); fi
+            out=$(curl -s -o /tmp/corpo -D /tmp/cab --max-time 30 "${ua[@]}" "${extra[@]}" \
+              -w 'http=%{http_code} ip=%{remote_ip} tempo=%{time_total}s tamanho=%{size_download} ssl=%{ssl_verify_result}' "$2"; echo " rc=$?")
+            echo "=== [$1] $2 :: $out"
+            grep -iE '^(HTTP|server|cf-ray|cf-cache|content-type|content-length|location|set-cookie|x-|retry|cf-mitigated)' /tmp/cab | sed 's/^/   /' | cut -c1-200
+            echo "   corpo: $(head -c 500 /tmp/corpo | tr '\n\r' '  ')"
+          }
+          for host in www.paraguainamao.com paraguainamao.com; do
+            for path in '/api/coletor.php?acao=cambio' '/api/v1/cambio' '/'; do
+              for ua in "$UA_NAV" "Python-urllib/3.12" ""; do
+                rot="UA=${ua:0:20}"; [ -z "$ua" ] && rot="UA=curl-padrao"
+                teste "$rot via-DNS" "https://$host$path" "$ua"
+                teste "$rot origem" "https://$host$path" "$ua" "$host:443:$ORIGEM"
+              done
+            done
+          done
+
+      - name: Verboso (TLS) sem token, via DNS e na origem
+        run: |
+          curl -sv --max-time 30 -o /dev/null -A "$UA_NAV" 'https://www.paraguainamao.com/api/coletor.php?acao=cambio' 2>&1 | grep -vE '^\{|^\}' | head -60
+          echo "------ origem direta"
+          curl -sv --max-time 30 -o /dev/null -A "$UA_NAV" --resolve "www.paraguainamao.com:443:$ORIGEM" 'https://www.paraguainamao.com/api/coletor.php?acao=cambio' 2>&1 | grep -vE '^\{|^\}' | head -60
+
+      - name: Com token (sem -v; só status, cabeçalhos e resumo)
+        run: |
+          for host in www.paraguainamao.com paraguainamao.com; do
+            for modo in dns origem; do
+              for ua in "$UA_NAV" "Python-urllib/3.12" "curl/8.5.0"; do
+                extra=(); [ "$modo" = origem ] && extra=(--resolve "$host:443:$ORIGEM")
+                out=$(curl -s -o /tmp/corpo -D /tmp/cab --max-time 60 -A "$ua" "${extra[@]}" \
+                  -H "Authorization: Bearer $COLETOR_TOKEN" \
+                  -w 'http=%{http_code} ip=%{remote_ip} tempo=%{time_total}s tamanho=%{size_download}' \
+                  "https://$host/api/coletor.php?acao=cambio"; echo " rc=$?")
+                echo "=== [token $modo UA=${ua:0:20}] $host :: $out"
+                grep -iE '^(HTTP|server|cf-ray|content-type|content-length|location|x-|cf-mitigated)' /tmp/cab | sed 's/^/   /' | cut -c1-200
+                if grep -q '"ok"' /tmp/corpo; then
+                  echo "   resumo: $(grep -oE '"(ok|erro)":[^,}]*' /tmp/corpo | tr '\n' ' ')"
+                else
+                  echo "   corpo: $(head -c 500 /tmp/corpo | tr '\n\r' '  ')"
+                fi
+              done
+            done
+          done
+
+      - name: Python urllib (como o coletor), com token
+        run: |
+          python3 - <<'PY'
+          import os, urllib.request, urllib.error
+          tok = os.environ["COLETOR_TOKEN"]
+          for url in ["https://www.paraguainamao.com/api/coletor.php?acao=cambio",
+                      "https://paraguainamao.com/api/coletor.php?acao=cambio"]:
+              for ua in [None, os.environ["UA_NAV"]]:
+                  h = {"Authorization": "Bearer " + tok}
+                  if ua: h["User-Agent"] = ua
+                  try:
+                      r = urllib.request.urlopen(urllib.request.Request(url, headers=h), timeout=60)
+                      corpo = r.read(500); cod = r.status; srv = r.headers.get("server"); cf = r.headers.get("cf-ray")
+                  except urllib.error.HTTPError as e:
+                      corpo = e.read(500); cod = e.code; srv = e.headers.get("server"); cf = e.headers.get("cf-ray")
+                  except Exception as e:
+                      print(f"=== {url} UA={'nav' if ua else 'urllib'} :: EXCECAO {type(e).__name__}: {e}"); continue
+                  txt = corpo.decode("utf-8", "replace").replace("\n", " ")
+                  if '"ok"' in txt: txt = "JSON com ok (resumo omitido)" + (" ok:true" if '"ok":true' in txt else " ok:false")
+                  print(f"=== {url} UA={'nav' if ua else 'urllib'} :: http={cod} server={srv} cf-ray={cf} corpo={txt[:500]}")
+          PY
