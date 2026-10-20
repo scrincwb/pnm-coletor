@@ -38,6 +38,11 @@ on:
 env:
   COLETOR_TOKEN: ${{ secrets.COLETOR_TOKEN }}
   COLETOR_API_URL: https://www.paraguainamao.com/api/coletor.php
+  # UA das chamadas à NOSSA API. Desde 19/10/2026 o Imunify360 da Alphamídia responde "Bot Verification"
+  # (reCAPTCHA) a qualquer UA de navegador/robô vindo de IP de datacenter e depois bloqueia o IP; só UA que
+  # começa com "curl/" ou "Wget/" passa. "Python-urllib" leva 403 (erro 1010) da Cloudflare. Testado 20/10/2026.
+  UA_API: 'curl/8.5.0 (pnm-coletor; +https://www.paraguainamao.com)'
+  # UA de navegador: só para páginas das LOJAS (nunca para a nossa API).
   UA_NAV: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36'
 
 jobs:
@@ -108,7 +113,7 @@ jobs:
       - name: Recalcular o real de todas as ofertas (câmbio de hoje)
         if: ${{ !cancelled() }}
         run: |
-          resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=recalcular_brl")
+          resposta=$(curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=recalcular_brl")
           # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
           echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
@@ -133,7 +138,7 @@ jobs:
           echo "páginas $de a $ate"; lidas=0; falhas=0
           while [ $de -le $ate ]; do
             q=$(( ate - de + 1 )); [ $q -gt 8 ] && q=8
-            r=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cellshop&de=$de&qtd=$q" || echo '{}')
+            r=$(curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cellshop&de=$de&qtd=$q" || echo '{}')
             echo "p$de: $r" | cut -c1-240
             n=$(echo "$r" | python3 -c "import json,sys
           try: print(json.load(sys.stdin).get('ofertas',0))
@@ -153,24 +158,24 @@ jobs:
     steps:
       - name: Atualizar a cotação no site
         run: |
-          resposta=$(curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cambio")
+          resposta=$(curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cambio")
           # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
           echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
       - name: Imóveis das imobiliárias conectadas (toda rodada; o servidor importa 1x por dia, a partir das 3h — manual importa na hora)
         run: |
           diario=1; [ "${{ github.event_name }}" = "workflow_dispatch" ] && diario=0
-          curl -sS --max-time 300 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds&diario=$diario" | grep -o '"ok":[a-z]*' || true
+          curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds&diario=$diario" | grep -o '"ok":[a-z]*' || true
       - name: Boletim do dia para o WhatsApp do dono (toda rodada; o servidor manda 1x por dia, entre 6h e 12h)
         # Log público: só confirma se foi, sem imprimir o texto do boletim.
         run: |
-          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1&diario=1" | grep -o '"ok":[a-z]*' || true
+          curl -sS --max-time 60 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1&diario=1" | grep -o '"ok":[a-z]*' || true
       - name: Alarme de loja parada (toda rodada; o servidor avisa no máximo 1x por dia)
         run: |
-          curl -sS --max-time 60 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas&diario=1" | grep -o '"ok":[a-z]*' || true
+          curl -sS --max-time 60 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas&diario=1" | grep -o '"ok":[a-z]*' || true
       - name: Auditoria do agrupamento (toda rodada; o servidor roda 1x por dia, a partir das 9h) — produtos iguais em fichas separadas
         run: |
-          curl -sS --max-time 290 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300&diario=1" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
+          curl -sS --max-time 290 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300&diario=1" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
 
   miniaturas:
     # Miniaturas WebP das fotos de produto para os cards do site (junto com os feeds).
@@ -181,7 +186,7 @@ jobs:
       - name: Gerar miniaturas que faltam
         run: |
           for i in $(seq 1 25); do
-            r=$(curl -sS --max-time 115 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=miniaturas")
+            r=$(curl -sS --max-time 115 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=miniaturas")
             # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
             echo "$r" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
             echo "$r" | grep -q '"ok":true' || exit 1
@@ -199,7 +204,7 @@ jobs:
         run: |
           desde=0
           for i in $(seq 1 60); do
-            r=$(curl -sS --max-time 115 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=reclassificar&desde=$desde")
+            r=$(curl -sS --max-time 115 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=reclassificar&desde=$desde")
             # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
             echo "$r" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
             echo "$r" | grep -q '"ok":true' || exit 1
@@ -227,7 +232,7 @@ jobs:
         run: pip3 install -q overturemaps && python3 coletor/lugares_overture.py --config coletor/config.json
       - name: Fechar notas (quem o Overture não confirmou fica fora do guia)
         run: |
-          resposta=$(curl -sS --max-time 120 -A "$UA_NAV" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=lugares_fechar_notas")
+          resposta=$(curl -sS --max-time 120 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=lugares_fechar_notas")
           # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
           echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'

@@ -25,7 +25,8 @@ jobs:
         run: |
           # Disparo manual força a rodada (o servidor não pula por "rodada recente").
           forcar=0; [ "${{ github.event_name }}" = "workflow_dispatch" ] && forcar=1
-          codigo=$(curl -s -o /dev/null -w '%{http_code}' --max-time 290 --retry 2 --retry-delay 20 \
+          # Exige JSON: o Imunify360 do servidor devolve "Bot Verification" com HTTP 200 (HTML) quando barra o robô.
+          codigo=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' --max-time 290 --retry 2 --retry-delay 20 \
             -X POST -H "X-Chave: $ROTINA_CHAVE" -H "X-Forcar: $forcar" https://paraguainamao.com/api/rotina.php)
           echo "HTTP $codigo"
-          [ "$codigo" = "200" ]
+          [[ "$codigo" == "200 application/json"* ]]

@@ -119,9 +119,12 @@ def main():
         if not chave: die("defina ROTINA_CHAVE no ambiente para usar --enviar")
         # Repo publico: o log mostra so o codigo HTTP e o resumo, nunca a resposta inteira.
         r = requests.post(a.enviar, data=json.dumps(saida, ensure_ascii=False).encode("utf-8"),
-            headers={"X-Chave": chave, "Content-Type": "application/json", "User-Agent": UA.get("User-Agent", "Mozilla/5.0")}, timeout=120)
-        print(f"HTTP {r.status_code} - {len(saida['precos'])} precos, semana {saida['semana_inicio']} a {saida['semana_fim']}")
-        if r.status_code != 200: sys.exit(1)
+            # UA "curl/...": o Imunify360 do servidor responde "Bot Verification" (HTTP 200, HTML) a UA de
+            # navegador vindo de datacenter (20/10/2026). Por isso tambem se exige resposta JSON.
+            headers={"X-Chave": chave, "Content-Type": "application/json", "User-Agent": "curl/8.5.0 (pnm-coletor; +https://www.paraguainamao.com)"}, timeout=120)
+        json_ok = r.headers.get("Content-Type", "").startswith("application/json")
+        print(f"HTTP {r.status_code} {'JSON' if json_ok else 'NAO-JSON (bloqueio/firewall?)'} - {len(saida['precos'])} precos, semana {saida['semana_inicio']} a {saida['semana_fim']}")
+        if r.status_code != 200 or not json_ok: sys.exit(1)
     else:
         print(json.dumps(saida, ensure_ascii=False, indent=1))
 

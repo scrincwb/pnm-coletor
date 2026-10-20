@@ -25,7 +25,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 API = os.environ["COLETOR_API_URL"]
 TOKEN = os.environ["COLETOR_TOKEN"]
-UA_API = os.environ.get("UA_NAV", "Mozilla/5.0")
+# Nossa API: UA "curl/..." (o Imunify360 do servidor desafia UA de navegador/robô vindo de datacenter; 20/10/2026).
+UA_API = os.environ.get("UA_API", "curl/8.5.0 (pnm-coletor; +https://www.paraguainamao.com)")
 UA_ROBO = "Mozilla/5.0 (compatible; ParaguaiNaMaoBot/1.0; +https://www.paraguainamao.com)"
 UA_NAV = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0 Safari/537.36"
 LOJAS_JUNTAS = 8          # lojas diferentes conferidas ao mesmo tempo
