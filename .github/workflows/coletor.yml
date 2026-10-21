@@ -15,6 +15,7 @@ on:
     - cron: '47 8 * * *'   # 05:47 — prioritários (manhã) + Cellshop
     - cron: '47 16 * * *'  # 13:47 — prioritários (tarde)
     - cron: '17 4 * * 0'   # domingo 01:17 — Mega completa + lugares
+    - cron: '17 6 * * 1,4' # segunda e quinta 03:17 — Casa Americana completa (~30 min; robots.txt pede 20 s entre páginas)
     - cron: '37 */3 * * *' # a cada 3 h — cotação (+ boletim, loja parada, imóveis, auditoria: o servidor faz 1x/dia)
     - cron: '13 1-22/3 * * *' # cotação de novo, 1h30 depois: segunda chance quando o GitHub pula a de cima
     - cron: '5 3,9,15,21 * * *' # a cada 6 h — conferência de estoque nas páginas (GitHub abre, servidor grava)
@@ -238,7 +239,8 @@ jobs:
           echo "$resposta" | grep -q '"ok":true'
 
   completa:
-    if: github.event.schedule == '17 4 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'completa')
+    # Domingo: Mega. Segunda e quinta (03:17): só a Casa Americana (fica fora do --feeds; a pausa de 20 s vem do config).
+    if: github.event.schedule == '17 4 * * 0' || github.event.schedule == '17 6 * * 1,4' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'completa')
     runs-on: ubuntu-latest
     timeout-minutes: 345
     steps:
@@ -252,7 +254,7 @@ jobs:
           python-version: '3.12'
       - name: Carga completa de ${{ inputs.loja || 'mega-eletronicos' }}
         env:
-          LOJA: ${{ inputs.loja || 'mega-eletronicos' }}
+          LOJA: ${{ github.event.schedule == '17 6 * * 1,4' && 'casa-americana' || inputs.loja || 'mega-eletronicos' }}
           PARTE: ${{ inputs.parte }}
         run: |
           [[ "$LOJA" =~ ^[a-z0-9-]+$ ]] || { echo "loja inválida"; exit 1; }
