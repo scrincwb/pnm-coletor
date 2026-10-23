@@ -20,6 +20,7 @@ on:
     - cron: '13 1-22/3 * * *' # cotação de novo, 1h30 depois: segunda chance quando o GitHub pula a de cima
     - cron: '5 3,9,15,21 * * *' # a cada 6 h — conferência de estoque nas páginas (GitHub abre, servidor grava)
     - cron: '11 5 1 * *'   # dia 1 — commit de "sinal de vida" (o GitHub desliga agendamento após 60 dias parado)
+    - cron: '29 14 * * *'  # 11:29 — detector de grupos suspeitos (produtos diferentes na mesma ficha), 1 passada por dia
   workflow_dispatch:
     inputs:
       loja:
@@ -27,7 +28,7 @@ on:
         default: mega-eletronicos
       modo:
         type: choice
-        options: [prioritarios, cambio, completa, feeds, estoque, cellshop, lugares, reclassificar, miniaturas]
+        options: [prioritarios, cambio, completa, feeds, estoque, cellshop, lugares, reclassificar, miniaturas, grupos_suspeitos]
         default: prioritarios
       parte:
         description: 'Fatia k/n para lojas grandes (ex.: 1/4). Vazio = tudo'
@@ -208,6 +209,27 @@ jobs:
         if: ${{ steps.vps.outputs.pular != 'true' }}
         run: |
           curl -sS --max-time 290 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300&diario=1" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
+
+  grupos_suspeitos:
+    # Detector de grupos suspeitos (includes/grupos_suspeitos.php no site): só PROPÕE; separar é no Admin ›
+    # Produtos › Grupos suspeitos. Cada chamada roda uma leva de ~18 s (o Apache do VPS corta em 30 s) e diz
+    # se a passada acabou (rodada.fim). Repete até o fim, com teto de tentativas. Não depende do ja_rodou:
+    # o cron do VPS não chama este detector.
+    if: github.event.schedule == '29 14 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'grupos_suspeitos')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Rodar o detector até o fim da passada
+        run: |
+          # Log público: só o resumo da leva (nunca nomes de produto nem preços).
+          for i in $(seq 1 15); do
+            r=$(curl -sS --max-time 60 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=grupos_suspeitos&limite=1&rodar=1" 2>/dev/null || true)
+            fim=$(echo "$r" | jq -r '.rodada.fim // empty' 2>/dev/null || true)
+            echo "leva $i: $(echo "$r" | jq -c '.rodada | {fim, analisadas, novo, atualizado, saiu, abertos, segundos}' 2>/dev/null || echo 'sem resposta JSON')"
+            [ "$fim" = "true" ] && { echo "Passada completa."; exit 0; }
+            sleep 5
+          done
+          echo "::warning::Passada não terminou em 15 levas (continua amanhã de onde parou)."
 
   miniaturas:
     # Miniaturas WebP das fotos de produto para os cards do site (junto com os feeds).
