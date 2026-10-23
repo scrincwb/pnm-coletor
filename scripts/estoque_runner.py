@@ -143,7 +143,10 @@ def conferir_loja(slug, dados):
 def main():
     qtd = os.environ.get("ESTOQUE_QTD", "1500")
     qtd_outras = os.environ.get("ESTOQUE_QTD_OUTRAS", "300")
-    pend = api(f"acao=estoque_pendentes&qtd={qtd}&qtd_outras={qtd_outras}")
+    # ESTOQUE_ALVO=github: o servidor tira da lista as lojas 403 (madrid-center, visao-vip, cellshop,
+    # matrix-importados, nissei-py), que o Mac confere no Chrome. Vazio = tudo, como antes.
+    alvo = os.environ.get("ESTOQUE_ALVO", "")
+    pend = api(f"acao=estoque_pendentes&qtd={qtd}&qtd_outras={qtd_outras}" + (f"&alvo={alvo}" if alvo in ("github", "mac") else ""))
     lojas = pend.get("lojas") or {}
     log(f"{len(lojas)} lojas, {sum(len(d['itens']) for d in lojas.values())} ofertas para conferir")
     # Lojas com mais ofertas primeiro (terminam por último)
