@@ -50,21 +50,34 @@ jobs:
   prioritarios:
     if: github.event.schedule == '47 8 * * *' || github.event.schedule == '47 16 * * *' || (github.event_name == 'workflow_dispatch' && inputs.modo == 'prioritarios')
     runs-on: ubuntu-latest
-    timeout-minutes: 120   # Atacado (2500) e Matrix (2000) por rodada desde 04/10/2026
+    timeout-minutes: 120   # Atacado (2500) e Matrix (2000) por rodada desde 04/10/2026; Intershop e Prolar (1500 cada) entraram em 23/10/2026 (estavam no config.json mas fora desta lista, então nunca rodaram). Deve espelhar `coletor.py --listar-prioritarias`.
     strategy:
       fail-fast: false
       matrix:
-        loja: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.loja)) || fromJSON('["mega-eletronicos","atacado-connect","one-click","matrix-importados","empire-shop"]') }}
+        loja: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.loja)) || fromJSON('["mega-eletronicos","atacado-connect","one-click","matrix-importados","empire-shop","intershop","prolar-shop"]') }}
     steps:
+      - name: O VPS já fez esta rodada? (reserva - só roda se o VPS não rodou; falha ao perguntar = roda)
+        id: vps
+        if: github.event_name == 'schedule'
+        env:
+          LOJA_GUARDA: ${{ matrix.loja }}
+        run: |
+          # FAIL-OPEN: só pula com a resposta exata "rodou":true. Qualquer outra coisa (erro, HTML do firewall,
+          # endpoint ainda não publicado, timeout) = segue e coleta normalmente. Log público: só imprime o veredito.
+          r=$(curl -sS --max-time 20 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=ja_rodou&modo=prioritarios&loja=$LOJA_GUARDA&janela=5h" 2>/dev/null || true)
+          if echo "$r" | grep -q '"rodou":true'; then echo "pular=true" >> "$GITHUB_OUTPUT"; echo "VPS já rodou na janela: este job será pulado"; else echo "pular=false" >> "$GITHUB_OUTPUT"; echo "VPS não rodou (ou sem resposta): coleta normal"; fi
       - uses: actions/checkout@v4
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         with:
           repository: scrincwb/paraguainamao-site
           ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
           sparse-checkout: coletor
       - uses: actions/setup-python@v5
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         with:
           python-version: '3.12'
       - name: Recolher os prioritários de ${{ matrix.loja }}
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         env:
           LOJA: ${{ matrix.loja }}
           LIMITE: ${{ inputs.limite || '150' }}
@@ -93,26 +106,37 @@ jobs:
     # No repositório privado o limite era 120 min e a coleta era cancelada no meio.
     timeout-minutes: 330
     steps:
+      - name: O VPS já fez esta rodada? (reserva - só roda se o VPS não rodou; falha ao perguntar = roda)
+        id: vps
+        if: github.event_name == 'schedule'
+        run: |
+          # FAIL-OPEN: só pula com a resposta exata "rodou":true. Qualquer outra coisa (erro, HTML do firewall,
+          # endpoint ainda não publicado, timeout) = segue e coleta normalmente. Log público: só imprime o veredito.
+          r=$(curl -sS --max-time 20 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=ja_rodou&modo=feeds&janela=5h" 2>/dev/null || true)
+          if echo "$r" | grep -q '"rodou":true'; then echo "pular=true" >> "$GITHUB_OUTPUT"; echo "VPS já rodou na janela: este job será pulado"; else echo "pular=false" >> "$GITHUB_OUTPUT"; echo "VPS não rodou (ou sem resposta): coleta normal"; fi
       - uses: actions/checkout@v4
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         with:
           repository: scrincwb/paraguainamao-site
           ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
           sparse-checkout: coletor
       - uses: actions/setup-python@v5
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         with:
           python-version: '3.12'
       - name: Ler os feeds
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         run: python3 coletor/coletor.py --config coletor/config.json --feeds --pausa 0.5
       - uses: actions/checkout@v4
-        if: always()
+        if: ${{ always() && steps.vps.outputs.pular != 'true' }}
         with:
           path: pnm-coletor
           sparse-checkout: scripts
       - name: Conferir estoque na página (Roma, Shopping China, Mega + ronda geral)
-        if: always()
+        if: ${{ always() && steps.vps.outputs.pular != 'true' }}
         run: bash pnm-coletor/scripts/estoque.sh
       - name: Recalcular o real de todas as ofertas (câmbio de hoje)
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.vps.outputs.pular != 'true' }}
         run: |
           resposta=$(curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=recalcular_brl")
           # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
@@ -157,24 +181,37 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     steps:
+      - name: O VPS já fez esta rodada? (reserva - só roda se o VPS não rodou; falha ao perguntar = roda)
+        id: vps
+        if: github.event_name == 'schedule'
+        run: |
+          # FAIL-OPEN: só pula com a resposta exata "rodou":true. Qualquer outra coisa (erro, HTML do firewall,
+          # endpoint ainda não publicado, timeout) = segue e coleta normalmente. Log público: só imprime o veredito.
+          r=$(curl -sS --max-time 20 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=ja_rodou&modo=cambio&janela=2h" 2>/dev/null || true)
+          if echo "$r" | grep -q '"rodou":true'; then echo "pular=true" >> "$GITHUB_OUTPUT"; echo "VPS já rodou na janela: este job será pulado"; else echo "pular=false" >> "$GITHUB_OUTPUT"; echo "VPS não rodou (ou sem resposta): coleta normal"; fi
       - name: Atualizar a cotação no site
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         run: |
           resposta=$(curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=cambio")
           # Repo público: o log mostra só o resumo, nunca a resposta inteira do servidor.
           echo "$resposta" | grep -oE '"(ok|fim|erro|total|novos)":[^,}]*' | tr '\n' ' '; echo
           echo "$resposta" | grep -q '"ok":true'
       - name: Imóveis das imobiliárias conectadas (toda rodada; o servidor importa 1x por dia, a partir das 3h — manual importa na hora)
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         run: |
           diario=1; [ "${{ github.event_name }}" = "workflow_dispatch" ] && diario=0
           curl -sS --max-time 300 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=imoveis_feeds&diario=$diario" | grep -o '"ok":[a-z]*' || true
       - name: Boletim do dia para o WhatsApp do dono (toda rodada; o servidor manda 1x por dia, entre 6h e 12h)
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         # Log público: só confirma se foi, sem imprimir o texto do boletim.
         run: |
           curl -sS --max-time 60 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=boletim&enviar=1&diario=1" | grep -o '"ok":[a-z]*' || true
       - name: Alarme de loja parada (toda rodada; o servidor avisa no máximo 1x por dia)
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         run: |
           curl -sS --max-time 60 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=saude_lojas&diario=1" | grep -o '"ok":[a-z]*' || true
       - name: Auditoria do agrupamento (toda rodada; o servidor roda 1x por dia, a partir das 9h) — produtos iguais em fichas separadas
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         run: |
           curl -sS --max-time 290 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=auditoria_grupos&salvar=1&limite=300&diario=1" | grep -oE '"(ok|fortes|antes|grupos_suspeitos)":[a-z0-9]*' || true
 
@@ -244,15 +281,28 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 345
     steps:
+      - name: O VPS já fez esta rodada? (reserva - só roda se o VPS não rodou; falha ao perguntar = roda)
+        id: vps
+        if: github.event_name == 'schedule'
+        env:
+          LOJA_GUARDA: ${{ github.event.schedule == '17 6 * * 1,4' && 'casa-americana' || inputs.loja || 'mega-eletronicos' }}
+        run: |
+          # FAIL-OPEN: só pula com a resposta exata "rodou":true. Qualquer outra coisa (erro, HTML do firewall,
+          # endpoint ainda não publicado, timeout) = segue e coleta normalmente. Log público: só imprime o veredito.
+          r=$(curl -sS --max-time 20 -A "$UA_API" -H "Authorization: Bearer $COLETOR_TOKEN" "$COLETOR_API_URL?acao=ja_rodou&modo=completa&loja=$LOJA_GUARDA&janela=12h" 2>/dev/null || true)
+          if echo "$r" | grep -q '"rodou":true'; then echo "pular=true" >> "$GITHUB_OUTPUT"; echo "VPS já rodou na janela: este job será pulado"; else echo "pular=false" >> "$GITHUB_OUTPUT"; echo "VPS não rodou (ou sem resposta): coleta normal"; fi
       - uses: actions/checkout@v4
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         with:
           repository: scrincwb/paraguainamao-site
           ssh-key: ${{ secrets.SITE_DEPLOY_KEY }}
           sparse-checkout: coletor
       - uses: actions/setup-python@v5
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         with:
           python-version: '3.12'
       - name: Carga completa de ${{ inputs.loja || 'mega-eletronicos' }}
+        if: ${{ steps.vps.outputs.pular != 'true' }}
         env:
           LOJA: ${{ github.event.schedule == '17 6 * * 1,4' && 'casa-americana' || inputs.loja || 'mega-eletronicos' }}
           PARTE: ${{ inputs.parte }}
